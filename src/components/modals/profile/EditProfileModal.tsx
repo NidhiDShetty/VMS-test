@@ -25,6 +25,11 @@ import {
   deleteProfileImage,
 } from "@/app/api/profile/routes";
 import usePreventBodyScroll from "@/hooks/usePreventBodyScroll";
+import { Camera, CameraResultType, CameraSource } from "@capacitor/camera";
+import {
+  takePhotoWithSizeLimit,
+  compressFileToMaxSize,
+} from "@/utils/imageCompression";
 
 export type EditProfileForm = {
   name: string;
@@ -271,8 +276,101 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
     };
 
   // Image upload handlers
-  const handleImageClick = () => {
-    fileInputRef.current?.click();
+  const handleImageClick = async () => {
+    if (imageLoading || deleteLoading || imageRefreshing) return;
+
+    // Check if we're on mobile (Capacitor) or web
+    const windowWithCapacitor = window as {
+      Capacitor?: { isNativePlatform?: () => boolean };
+    };
+    const isCapacitor =
+      typeof window !== "undefined" &&
+      windowWithCapacitor.Capacitor &&
+      windowWithCapacitor.Capacitor.isNativePlatform?.();
+
+    if (isCapacitor) {
+      // Use Capacitor Camera for mobile with automatic compression
+      await handleCameraCapture();
+    } else {
+      // Use file input for web
+      fileInputRef.current?.click();
+    }
+  };
+
+  // Handle camera capture
+  const handleCameraCapture = async () => {
+    if (imageLoading || deleteLoading || imageRefreshing) return;
+
+    setImageLoading(true);
+    setImageError(null);
+
+    // Store the current image state for potential rollback
+    const previousImage = form.profileImage;
+
+    try {
+      // Use Capacitor Camera for mobile with automatic compression
+      const compressedFile = await takePhotoWithSizeLimit(5);
+
+      // Immediately show the new image preview and set upload flag
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        setForm((prev) => ({
+          ...prev,
+          profileImage: result,
+        }));
+        // Set the flag immediately when preview is shown
+        setImageJustUploaded(true);
+      };
+      reader.readAsDataURL(compressedFile);
+
+      // Upload the compressed image to backend
+      const response = await uploadProfileImage(compressedFile);
+      if (response.success) {
+        // Upload successful - keep the preview image
+        // Flag is already set, so refresh won't interfere
+
+        // Notify dashboard to refresh
+        window.dispatchEvent(new Event("profileUpdated"));
+
+        // Clear the success indicator after 3 seconds
+        setTimeout(() => {
+          setImageJustUploaded(false);
+        }, 3000);
+      } else {
+        setImageError(response.error || "Failed to upload image");
+        // Revert to previous state on upload failure
+        setForm((prev) => ({
+          ...prev,
+          profileImage: previousImage,
+        }));
+        setImageJustUploaded(false); // Reset flag on failure
+      }
+    } catch (err) {
+      console.error("Camera capture error:", err);
+      if (err instanceof Error) {
+        if (err.name === "NotAllowedError") {
+          setImageError("Camera access denied. Please allow camera permissions.");
+        } else if (err.name === "NotFoundError") {
+          setImageError("No camera found on this device.");
+        } else if (err.message.includes("User cancelled")) {
+          // User cancelled, don't show error
+          return;
+        } else {
+          setImageError("Failed to capture image. Please try again.");
+        }
+      } else {
+        setImageError("Failed to capture image. Please try again.");
+      }
+      // Revert to previous state on error
+      setForm((prev) => ({
+        ...prev,
+        profileImage: previousImage,
+      }));
+      setImageJustUploaded(false); // Reset flag on error
+    } finally {
+      setImageLoading(false);
+    }
   };
 
   const handleImageChange = async (e: ChangeEvent<HTMLInputElement>) => {
@@ -285,11 +383,7 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
       return;
     }
 
-    // Validate file size (10MB limit)
-    if (file.size > 10 * 1024 * 1024) {
-      setImageError("File size must be less than 10MB");
-      return;
-    }
+    // Note: File size validation removed - compression will handle large files
 
     setImageLoading(true);
     setImageError(null);
@@ -298,6 +392,9 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
     const previousImage = form.profileImage;
 
     try {
+      // Compress the file before processing
+      const compressedFile = await compressFileToMaxSize(file, 5);
+
       // Immediately show the new image preview and set upload flag
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -309,10 +406,10 @@ const EditProfileModal: React.FC<EditProfileModalProps> = ({
         // Set the flag immediately when preview is shown
         setImageJustUploaded(true);
       };
-      reader.readAsDataURL(file);
+      reader.readAsDataURL(compressedFile);
 
-      // Upload to backend
-      const response = await uploadProfileImage(file);
+      // Upload the compressed image to backend
+      const response = await uploadProfileImage(compressedFile);
       if (response.success) {
         // Upload successful - keep the preview image
         // Flag is already set, so refresh won't interfere
