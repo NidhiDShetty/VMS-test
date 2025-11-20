@@ -51,7 +51,7 @@ const PhotoCapture: React.FC<PhotoCaptureProps> = ({
         });
 
         // Compress the file if needed before processing
-        const compressedFile = await compressFileToMaxSize(file, 15);
+        const compressedFile = await compressFileToMaxSize(file, 5);
 
         // Create preview URL from compressed file
         const url = URL.createObjectURL(compressedFile);

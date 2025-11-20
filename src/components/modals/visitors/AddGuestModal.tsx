@@ -155,7 +155,7 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
 
       if (isCapacitor) {
         // Use Capacitor Camera for mobile with automatic compression
-        const compressedFile = await takePhotoWithSizeLimit(15);
+        const compressedFile = await takePhotoWithSizeLimit(5);
         await handleImageCapture(compressedFile);
       } else {
         // Use web camera API
@@ -418,7 +418,7 @@ const AddGuestModal: React.FC<AddGuestModalProps> = ({
       const jpgFile = await convertToJpg(file);
       
       // Compress the file if needed before uploading
-      const compressedFile = await compressFileToMaxSize(jpgFile, 15);
+      const compressedFile = await compressFileToMaxSize(jpgFile, 5);
       
       await handleImageCapture(compressedFile);
     } catch (err) {
